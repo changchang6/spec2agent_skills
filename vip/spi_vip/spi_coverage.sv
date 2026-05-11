@@ -1,139 +1,127 @@
-/******************************************************************************
- * SPI VIP Coverage
- * Description: Coverage collector for SPI VIP
- ******************************************************************************/
-
 `ifndef SPI_COVERAGE_SV
 `define SPI_COVERAGE_SV
 
-`uvm_analysis_imp_decl(_from_mon)
+`uvm_analysis_imp_decl(_mon)
 
 class spi_coverage extends uvm_component;
 
-    `uvm_component_utils(spi_coverage)
+  `uvm_component_utils(spi_coverage)
 
-    spi_agent_config m_config;
+  uvm_analysis_imp_mon#(spi_mon_item, spi_coverage) mon_port;
 
-    uvm_analysis_imp_from_mon#(spi_item, spi_coverage) analysis_port;
+  spi_agent_config m_agent_config;
 
-    protected spi_item m_collected_items[$];
+  // Transaction covergroup
+  covergroup cg_spi_transaction with function sample(spi_mon_item item);
+    cp_opcode: coverpoint item.opcode {
+      bins wr_csr       = {SPI_WR_CSR};
+      bins rd_csr       = {SPI_RD_CSR};
+      bins ahb_wr32     = {SPI_AHB_WR32};
+      bins ahb_rd32     = {SPI_AHB_RD32};
+      bins ahb_wr_burst = {SPI_AHB_WR_BURST};
+      bins ahb_rd_burst = {SPI_AHB_RD_BURST};
+    }
 
-    covergroup cg_spi_transaction with function sample(spi_item trans);
-        option.per_instance = 1;
+    cp_lane_mode: coverpoint item.lane_mode {
+      bins mode_1bit  = {SPI_LANE_1BIT};
+      bins mode_4bit  = {SPI_LANE_4BIT};
+      bins mode_8bit  = {SPI_LANE_8BIT};
+      bins mode_16bit = {SPI_LANE_16BIT};
+    }
 
-        cp_opcode: coverpoint trans.opcode {
-            type_option.comment = "SPI opcode type";
-            bins wr_csr = {CMD_WR_CSR};
-            bins rd_csr = {CMD_RD_CSR};
-            bins ahb_wr32 = {CMD_AHB_WR32};
-            bins ahb_rd32 = {CMD_AHB_RD32};
-            bins ahb_wr_burst = {CMD_AHB_WR_BURST};
-            bins ahb_rd_burst = {CMD_AHB_RD_BURST};
-        }
+    cp_status: coverpoint item.status {
+      bins ok          = {SPI_STS_OK};
+      bins frame_err   = {SPI_STS_FRAME_ERR};
+      bins bad_opcode  = {SPI_STS_BAD_OPCODE};
+      bins not_in_test = {SPI_STS_NOT_IN_TEST};
+      bins disabled    = {SPI_STS_DISABLED};
+      bins bad_reg     = {SPI_STS_BAD_REG};
+      bins align_err   = {SPI_STS_ALIGN_ERR};
+      bins ahb_err     = {SPI_STS_AHB_ERR};
+      bins bad_burst   = {SPI_STS_BAD_BURST};
+      bins burst_bound = {SPI_STS_BURST_BOUND};
+    }
 
-        cp_lane_mode: coverpoint trans.lane_mode {
-            type_option.comment = "Lane mode";
-            bins mode_1bit = {LANE_MODE_1BIT};
-            bins mode_4bit = {LANE_MODE_4BIT};
-            bins mode_8bit = {LANE_MODE_8BIT};
-            bins mode_16bit = {LANE_MODE_16BIT};
-        }
+    cp_burst_len: coverpoint item.burst_len {
+      bins single = {1};
+      bins incr4  = {4};
+      bins incr8  = {8};
+      bins incr16 = {16};
+      bins illegal_zero = {0};
+      bins illegal_other = {[2:3], [5:7], [9:15], [17:31]};
+    }
 
-        cp_direction: coverpoint trans.direction {
-            type_option.comment = "Transaction direction";
-        }
+    cp_direction: coverpoint item.direction {
+      bins request  = {SPI_REQUEST};
+      bins response = {SPI_RESPONSE};
+    }
 
-        cp_status: coverpoint trans.status {
-            type_option.comment = "Response status";
-            bins ok = {STS_OK};
-            bins frame_err = {STS_FRAME_ERR};
-            bins bad_opcode = {STS_BAD_OPCODE};
-            bins not_in_test = {STS_NOT_IN_TEST};
-            bins disabled = {STS_DISABLED};
-            bins bad_reg = {STS_BAD_REG};
-            bins align_err = {STS_ALIGN_ERR};
-            bins ahb_err = {STS_AHB_ERR};
-            bins bad_burst = {STS_BAD_BURST};
-            bins burst_bound = {STS_BURST_BOUND};
-        }
+    cx_opcode_lane: cross cp_opcode, cp_lane_mode;
+    cx_opcode_status: cross cp_opcode, cp_status;
+  endgroup
 
-        cp_burst_len: coverpoint trans.burst_len {
-            type_option.comment = "Burst length";
-            bins len_1 = {1};
-            bins len_4 = {4};
-            bins len_8 = {8};
-            bins len_16 = {16};
-        }
+  // Address covergroup
+  covergroup cg_spi_addr with function sample(spi_mon_item item);
+    cp_reg_addr: coverpoint item.reg_addr {
+      bins low     = {[8'h00:8'h0F]};
+      bins mid     = {[8'h10:8'h2F]};
+      bins high    = {[8'h30:8'h3F]};
+      bins illegal = {[8'h40:8'hFF]};
+    }
 
-        cp_addr_aligned: coverpoint trans.addr[1:0] {
-            type_option.comment = "Address alignment";
-            bins aligned = {2'b00};
-            bins misaligned = default;
-        }
+    cp_ahb_addr_aligned: coverpoint item.addr[1:0] {
+      bins aligned   = {2'b00};
+      bins unaligned = {2'b01, 2'b10, 2'b11};
+    }
+  endgroup
 
-        cx_opcode_lane: cross cp_opcode, cp_lane_mode;
+  // FIFO status covergroup
+  covergroup cg_spi_fifo with function sample(spi_mon_item item);
+    cp_rxfifo_full: coverpoint item.rxfifo_full_obs {
+      bins not_full = {0};
+      bins full     = {1};
+    }
 
-        cx_opcode_status: cross cp_opcode, cp_status;
+    cp_txfifo_empty: coverpoint item.txfifo_empty_obs {
+      bins not_empty = {0};
+      bins empty     = {1};
+    }
 
-        cx_opcode_direction: cross cp_opcode, cp_direction;
+    cp_rxfifo_empty: coverpoint item.rxfifo_empty_obs {
+      bins not_empty = {0};
+      bins empty     = {1};
+    }
 
-        cp_addr_bits: coverpoint trans.addr {
-            type_option.comment = "Address distribution";
-            bins addr_low = {[32'h0000_0000:32'h0000_00FF]};
-            bins addr_mid = {[32'h0000_0100:32'h0000_FFFF]};
-            bins addr_high = {[32'h0001_0000:32'hFFFF_FFFF]};
-        }
+    cp_txfifo_full: coverpoint item.txfifo_full_obs {
+      bins not_full = {0};
+      bins full     = {1};
+    }
+  endgroup
 
-        cp_data_bits: coverpoint trans.data {
-            type_option.comment = "Data distribution";
-            bins data_zero = {32'h0000_0000};
-            bins data_low = {[32'h0000_0001:32'h0000_00FF]};
-            bins data_mid = {[32'h0000_0100:32'h00FF_FF00]};
-            bins data_high = {[32'h00FF_FF01:32'hFFFF_FFFE]};
-            bins data_ones = {32'hFFFF_FFFF};
-        }
-    endgroup
+  function new(string name = "spi_coverage", uvm_component parent = null);
+    super.new(name, parent);
+    cg_spi_transaction = new();
+    cg_spi_addr = new();
+    cg_spi_fifo = new();
+  endfunction
 
-    covergroup cg_spi_transitions with function sample(spi_item trans);
-        option.per_instance = 1;
+  virtual function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+    mon_port = new("mon_port", this);
+  endfunction
 
-        cp_trans_opcode: coverpoint trans.opcode {
-            bins transitions[] = (CMD_WR_CSR, CMD_RD_CSR, CMD_AHB_WR32, CMD_AHB_RD32,
-                                   CMD_AHB_WR_BURST, CMD_AHB_RD_BURST =>
-                                   CMD_WR_CSR, CMD_RD_CSR, CMD_AHB_WR32, CMD_AHB_RD32,
-                                   CMD_AHB_WR_BURST, CMD_AHB_RD_BURST);
-        }
-    endgroup
+  virtual function void write_mon(spi_mon_item item);
+    cg_spi_transaction.sample(item);
+    if (item.opcode inside {SPI_WR_CSR, SPI_RD_CSR})
+      cg_spi_addr.sample(item);
+    if (item.direction == SPI_RESPONSE)
+      cg_spi_fifo.sample(item);
+  endfunction
 
-    function new(string name = "spi_coverage", uvm_component parent = null);
-        super.new(name, parent);
-        analysis_port = new("analysis_port", this);
+  virtual function void handle_reset();
+    // Coverage data persists across resets
+  endfunction
 
-        cg_spi_transaction = new();
-        cg_spi_transaction.set_inst_name($sformatf("%s_transaction", get_full_name()));
+endclass : spi_coverage
 
-        cg_spi_transitions = new();
-        cg_spi_transitions.set_inst_name($sformatf("%s_transitions", get_full_name()));
-    endfunction
-
-    virtual function void write_from_mon(spi_item trans);
-        cg_spi_transaction.sample(trans);
-
-        if(m_collected_items.size() > 0) begin
-            cg_spi_transitions.sample(trans);
-        end
-
-        m_collected_items.push_back(trans);
-
-        if(m_collected_items.size() > 10) begin
-            void'(m_collected_items.pop_front());
-        end
-    endfunction
-
-    virtual function void handle_reset();
-        m_collected_items.delete();
-    endfunction
-
-endclass
-
-`endif
+`endif // SPI_COVERAGE_SV

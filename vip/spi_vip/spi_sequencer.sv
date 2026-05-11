@@ -1,34 +1,21 @@
-/******************************************************************************
- * SPI VIP Sequencer
- * Description: Sequencer for SPI VIP
- ******************************************************************************/
-
 `ifndef SPI_SEQUENCER_SV
 `define SPI_SEQUENCER_SV
 
-class spi_sequencer extends uvm_sequencer#(spi_item);
+class spi_sequencer extends uvm_sequencer#(spi_drv_item);
 
-    `uvm_component_utils(spi_sequencer)
+  `uvm_component_utils(spi_sequencer)
 
-    function new(string name = "spi_sequencer", uvm_component parent = null);
-        super.new(name, parent);
-    endfunction
+  spi_agent_config m_agent_config;
 
-    virtual function void handle_reset(uvm_phase phase);
-        int objections_count;
-        stop_sequences();
+  function new(string name = "spi_sequencer", uvm_component parent = null);
+    super.new(name, parent);
+  endfunction
 
-        objections_count = uvm_test_done.get_objection_count(this);
+  virtual function void handle_reset(uvm_phase phase);
+    stop_sequences();
+    start_phase_sequence(phase);
+  endfunction
 
-        if(objections_count > 0) begin
-            uvm_test_done.drop_objection(this,
-                $sformatf("Dropping %0d objections at reset", objections_count),
-                objections_count);
-        end
+endclass : spi_sequencer
 
-        start_phase_sequence(phase);
-    endfunction
-
-endclass
-
-`endif
+`endif // SPI_SEQUENCER_SV

@@ -1,229 +1,285 @@
-/******************************************************************************
- * SPI VIP Monitor
- * Description: Monitor for SPI VIP - monitors transactions on the SPI interface
- ******************************************************************************/
-
 `ifndef SPI_MONITOR_SV
 `define SPI_MONITOR_SV
 
 class spi_monitor extends uvm_monitor;
 
-    `uvm_component_utils(spi_monitor)
+  `uvm_component_utils(spi_monitor)
 
-    spi_agent_config m_config;
-    spi_vif_t m_vif;
+  uvm_analysis_port#(spi_mon_item) output_port;
 
-    uvm_analysis_port#(spi_item) analysis_port;
+  spi_agent_config m_agent_config;
+  process m_collect_process;
 
-    protected process m_collect_process;
+  function new(string name = "spi_monitor", uvm_component parent = null);
+    super.new(name, parent);
+  endfunction
 
-    function new(string name = "spi_monitor", uvm_component parent = null);
-        super.new(name, parent);
-        analysis_port = new("analysis_port", this);
-    endfunction
+  virtual function void build_phase(uvm_phase phase);
+    super.build_phase(phase);
+    output_port = new("output_port", this);
+  endfunction
 
-    virtual function string get_id();
-        return "SPI_MON";
-    endfunction
-
-    virtual function void start_of_simulation_phase(input uvm_phase phase);
-        super.start_of_simulation_phase(phase);
-        assert(m_config != null) else
-            `uvm_fatal(get_id(), "Agent config is null");
-        m_vif = m_config.get_dut_vif();
-        assert(m_vif != null) else
-            `uvm_fatal(get_id(), "Virtual interface is null");
-    endfunction
-
-    virtual function void handle_reset();
-        if(m_collect_process != null) begin
-            m_collect_process.kill();
-            `uvm_info(get_id(), "Killing collect process on reset", UVM_MEDIUM)
+  virtual task run_phase(uvm_phase phase);
+    forever begin
+      fork
+        begin
+          m_agent_config.wait_reset_end();
+          collect_transactions();
         end
-    endfunction
+      join_none
+      m_agent_config.wait_reset_start();
+      handle_reset();
+      disable fork;
+    end
+  endtask
 
-    virtual task wait_reset_end();
-        m_config.wait_reset_end();
-    endtask
+  virtual function void handle_reset();
+    if (m_collect_process != null) begin
+      m_collect_process.kill();
+      m_collect_process = null;
+    end
+  endfunction
 
-    virtual task run_phase(uvm_phase phase);
-        forever begin
-            fork
-                begin
-                    wait_reset_end();
-                    collect_transactions();
-                    disable fork;
-                end
-            join
-        end
-    endtask
+  virtual task collect_transactions();
+    spi_vif_t vif;
+    vif = m_agent_config.get_vif();
 
-    virtual task collect_transactions();
-        m_collect_process = process::self();
-        `uvm_info(get_id(), "Starting collect_transactions", UVM_LOW)
+    forever begin
+      spi_mon_item req_item, rsp_item;
+      logic [559:0] rx_buf;
+      int unsigned  rx_count;
+      int unsigned  bits_per_clock;
+      spi_opcode_t  opcode_latched;
+      logic [4:0]   burst_len_latched;
+      int unsigned  expected_rx_bits;
+      int unsigned  expected_tx_bits;
+      bit           opcode_known;
 
-        forever begin
-            spi_item trans;
-            trans = spi_item::type_id::create("trans");
-            collect_transaction(trans);
-            analysis_port.write(trans);
-        end
-    endtask
+      // Wait for transaction start (pcs_n = 0)
+      do begin
+        @(vif.monitor_cb);
+      end while (vif.monitor_cb.pcs_n !== 1'b0);
 
-    virtual task collect_transaction(spi_item trans);
-        spi_lane_mode_t lane_mode_val;
-        int bpc_val;
-        logic [79:0] rx_data;
-        int rx_count;
-        int expected_bits;
+      m_collect_process = process::self();
 
-        while(m_vif.cb_mon.pcs_n === 1'b1) begin
-            @(m_vif.cb_mon);
-        end
+      req_item = spi_mon_item::type_id::create("req_item");
+      req_item.start_time    = $time;
+      req_item.direction     = SPI_REQUEST;
+      req_item.en_obs        = vif.monitor_cb.en;
+      req_item.test_mode_obs = vif.monitor_cb.test_mode;
+      req_item.lane_mode_obs = vif.monitor_cb.lane_mode;
+      req_item.lane_mode     = spi_lane_mode_t'(vif.monitor_cb.lane_mode);
 
-        trans.start_time = $time;
-        lane_mode_val = spi_lane_mode_t'(m_vif.cb_mon.lane_mode);
-        trans.lane_mode = lane_mode_val;
-        bpc_val = get_bits_per_cycle(lane_mode_val);
+      bits_per_clock = req_item.get_bits_per_clock();
 
-        rx_count = 0;
-        rx_data = '0;
-        expected_bits = 8;
+      // --- Request Phase ---
+      rx_buf         = '0;
+      rx_count       = 0;
+      opcode_latched = spi_opcode_t'('X);
+      burst_len_latched = '0;
+      expected_rx_bits  = 0;
+      opcode_known      = 0;
 
-        while(m_vif.cb_mon.pcs_n === 1'b0) begin
-            logic [15:0] pdi_word;
-            pdi_word = m_vif.cb_mon.pdi;
+      while (vif.monitor_cb.pcs_n === 1'b0) begin
+        logic [15:0] pdi_sample;
+        pdi_sample = vif.monitor_cb.pdi;
 
-            case(bpc_val)
-                1:  rx_data = {rx_data[78:0], pdi_word[0]};
-                4:  rx_data = {rx_data[75:0], pdi_word[3:0]};
-                8:  rx_data = {rx_data[71:0], pdi_word[7:0]};
-                16: rx_data = {rx_data[63:0], pdi_word[15:0]};
-                default: rx_data = {rx_data[63:0], pdi_word[15:0]};
-            endcase
-            rx_count += bpc_val;
-
-            if(rx_count == 8) begin
-                trans.opcode = spi_opcode_t'(rx_data[7:0]);
-                expected_bits = get_expected_frame_length(trans.opcode);
-            end
-
-            if(rx_count == 16 && trans.opcode inside {CMD_AHB_WR_BURST, CMD_AHB_RD_BURST}) begin
-                trans.burst_len = rx_data[12:8];
-                if(trans.opcode == CMD_AHB_WR_BURST) begin
-                    expected_bits = 48 + 32 * trans.burst_len;
-                end
-            end
-
-            if(rx_count >= expected_bits && m_vif.cb_mon.pcs_n === 1'b0) begin
-                @(m_vif.cb_mon);
-                if(m_vif.cb_mon.pcs_n === 1'b1) break;
-            end else begin
-                @(m_vif.cb_mon);
-            end
-        end
-
-        parse_rx_data(trans, rx_data, rx_count);
-
-        wait_for_response(trans);
-
-        trans.end_time = $time;
-        `uvm_info(get_id(), $sformatf("Collected: %s", trans.convert2string()), UVM_LOW)
-    endtask
-
-    virtual task wait_for_response(spi_item trans);
-        spi_lane_mode_t lane_mode_val;
-        int bpc_val;
-        int resp_len;
-        int resp_cycles;
-        logic [511:0] resp_data;
-        int resp_count;
-
-        lane_mode_val = trans.lane_mode;
-        bpc_val = get_bits_per_cycle(lane_mode_val);
-        resp_len = trans.get_response_length();
-        resp_cycles = (resp_len + bpc_val - 1) / bpc_val;
-
-        while(m_vif.cb_mon.pdo_oe === 1'b0 && m_vif.cb_mon.pcs_n === 1'b0) begin
-            @(m_vif.cb_mon);
-        end
-
-        if(m_vif.cb_mon.pdo_oe === 1'b1) begin
-            resp_count = 0;
-            resp_data = '0;
-
-            repeat(resp_cycles) begin
-                logic [15:0] pdo_word;
-                pdo_word = m_vif.cb_mon.pdo;
-
-                case(bpc_val)
-                    1:  resp_data = {resp_data[510:0], pdo_word[0]};
-                    4:  resp_data = {resp_data[507:0], pdo_word[3:0]};
-                    8:  resp_data = {resp_data[503:0], pdo_word[7:0]};
-                    16: resp_data = {resp_data[495:0], pdo_word[15:0]};
-                    default: resp_data = {resp_data[495:0], pdo_word[15:0]};
-                endcase
-                resp_count += bpc_val;
-
-                @(m_vif.cb_mon);
-            end
-
-            trans.status = spi_status_t'(resp_data[7:0]);
-            trans.has_response = 1;
-
-            if(trans.opcode == CMD_RD_CSR || trans.opcode == CMD_AHB_RD32) begin
-                trans.data = resp_data[39:8];
-            end else if(trans.opcode == CMD_AHB_RD_BURST) begin
-                for(int i = 0; i < trans.burst_len && i < 16; i++) begin
-                    trans.rdata_queue.push_back(resp_data[(i+1)*32 + 7 -: 32]);
-                end
-            end
-        end
-    endtask
-
-    virtual function void parse_rx_data(spi_item trans, logic [79:0] rx_data, int rx_count);
-        case(trans.opcode)
-            CMD_WR_CSR: begin
-                trans.addr = {16'h0, rx_data[71:64]};
-                trans.data = rx_data[63:32];
-                trans.direction = DIR_WRITE;
-            end
-            CMD_RD_CSR: begin
-                trans.addr = {16'h0, rx_data[71:64]};
-                trans.direction = DIR_READ;
-            end
-            CMD_AHB_WR32: begin
-                trans.addr = rx_data[71:40];
-                trans.data = rx_data[39:8];
-                trans.direction = DIR_WRITE;
-            end
-            CMD_AHB_RD32: begin
-                trans.addr = rx_data[71:40];
-                trans.direction = DIR_READ;
-            end
-            CMD_AHB_WR_BURST: begin
-                trans.addr = rx_data[63:32];
-                trans.direction = DIR_WRITE;
-            end
-            CMD_AHB_RD_BURST: begin
-                trans.addr = rx_data[63:32];
-                trans.direction = DIR_READ;
-            end
+        // Shift in bits_per_clock bits, MSB first
+        rx_buf = rx_buf << bits_per_clock;
+        case (bits_per_clock)
+          1:  rx_buf[0]    = pdi_sample[0];
+          4:  rx_buf[3:0]  = pdi_sample[3:0];
+          8:  rx_buf[7:0]  = pdi_sample[7:0];
+          16: rx_buf[15:0] = pdi_sample[15:0];
         endcase
-    endfunction
+        rx_count += bits_per_clock;
 
-    virtual function int get_expected_frame_length(spi_opcode_t opcode);
-        case(opcode)
-            CMD_WR_CSR: return 48;
-            CMD_RD_CSR: return 16;
-            CMD_AHB_WR32: return 72;
-            CMD_AHB_RD32: return 40;
-            CMD_AHB_WR_BURST: return 48;
-            CMD_AHB_RD_BURST: return 48;
-            default: return 8;
-        endcase
-    endfunction
+        // Latch opcode after 8 bits
+        if (rx_count == 8) begin
+          opcode_latched = spi_opcode_t'(rx_buf[7:0]);
+          req_item.opcode = opcode_latched;
+          opcode_known = 1;
+          case (opcode_latched)
+            SPI_WR_CSR:       expected_rx_bits = 48;
+            SPI_RD_CSR:       expected_rx_bits = 16;
+            SPI_AHB_WR32:     expected_rx_bits = 72;
+            SPI_AHB_RD32:     expected_rx_bits = 40;
+            SPI_AHB_WR_BURST: expected_rx_bits = 48;
+            SPI_AHB_RD_BURST: expected_rx_bits = 48;
+            default:          expected_rx_bits = 8;
+          endcase
+        end
 
-endclass
+        // For burst commands, extract burst_len after 16 bits
+        if (rx_count >= 16 && opcode_latched inside {SPI_AHB_WR_BURST, SPI_AHB_RD_BURST}) begin
+          burst_len_latched = rx_buf[12:8];
+          req_item.burst_len = burst_len_latched;
+          if (opcode_latched == SPI_AHB_WR_BURST)
+            expected_rx_bits = 48 + 32 * burst_len_latched;
+        end
 
-`endif
+        // Check if request is complete
+        if (expected_rx_bits > 0 && rx_count >= expected_rx_bits)
+          break;
+
+        @(vif.monitor_cb);
+      end
+
+      // Check if pcs_n went high prematurely (frame abort)
+      if (vif.monitor_cb.pcs_n === 1'b1 && rx_count < expected_rx_bits) begin
+        req_item.frame_aborted = 1;
+        req_item.end_time = $time;
+        if (opcode_known)
+          req_item.status = SPI_STS_FRAME_ERR;
+        parse_request(req_item, rx_buf, rx_count, opcode_latched, burst_len_latched);
+        output_port.write(req_item);
+        continue;
+      end
+
+      // Parse request fields
+      parse_request(req_item, rx_buf, rx_count, opcode_latched, burst_len_latched);
+      req_item.end_time = $time;
+      output_port.write(req_item);
+
+      // --- Wait for Response Phase ---
+      // Wait for pdo_oe to go high
+      while (vif.monitor_cb.pdo_oe !== 1'b1) begin
+        @(vif.monitor_cb);
+        if (vif.monitor_cb.pcs_n === 1'b1) begin
+          // pcs_n went high without response - frame abort
+          break;
+        end
+      end
+
+      if (vif.monitor_cb.pdo_oe !== 1'b1) begin
+        // No response received
+        continue;
+      end
+
+      // --- Response Phase ---
+      rsp_item = spi_mon_item::type_id::create("rsp_item");
+      rsp_item.direction  = SPI_RESPONSE;
+      rsp_item.opcode     = opcode_latched;
+      rsp_item.burst_len  = burst_len_latched;
+      rsp_item.lane_mode  = spi_lane_mode_t'(vif.monitor_cb.lane_mode);
+      rsp_item.start_time = $time;
+
+      expected_tx_bits = get_expected_response_bits(opcode_latched, burst_len_latched);
+
+      begin
+        logic [559:0] tx_buf;
+        int unsigned  tx_count;
+        tx_buf   = '0;
+        tx_count = 0;
+
+        while (vif.monitor_cb.pdo_oe === 1'b1) begin
+          logic [15:0] pdo_sample;
+          pdo_sample = vif.monitor_cb.pdo;
+
+          tx_buf = tx_buf << bits_per_clock;
+          case (bits_per_clock)
+            1:  tx_buf[0]    = pdo_sample[0];
+            4:  tx_buf[3:0]  = pdo_sample[3:0];
+            8:  tx_buf[7:0]  = pdo_sample[7:0];
+            16: tx_buf[15:0] = pdo_sample[15:0];
+          endcase
+          tx_count += bits_per_clock;
+
+          rsp_item.txfifo_empty_obs = vif.monitor_cb.txfifo_empty;
+          rsp_item.txfifo_full_obs  = vif.monitor_cb.txfifo_full;
+
+          @(vif.monitor_cb);
+        end
+
+        // Parse response
+        parse_response(rsp_item, tx_buf, tx_count, opcode_latched, burst_len_latched);
+      end
+
+      rsp_item.end_time = $time;
+      output_port.write(rsp_item);
+
+      // Wait for pcs_n to go high if not already
+      while (vif.monitor_cb.pcs_n !== 1'b1) begin
+        @(vif.monitor_cb);
+      end
+    end
+  endtask
+
+  virtual function void parse_request(spi_mon_item item, logic [559:0] frame_buf,
+                                       int unsigned count, spi_opcode_t opcode,
+                                       logic [4:0] burst_len);
+    case (opcode)
+      SPI_WR_CSR: begin
+        item.reg_addr = frame_buf[count-9 -: 8];
+        item.wdata = new[1];
+        item.wdata[0] = frame_buf[count-17 -: 32];
+      end
+      SPI_RD_CSR: begin
+        item.reg_addr = frame_buf[count-9 -: 8];
+      end
+      SPI_AHB_WR32: begin
+        item.addr = frame_buf[count-9 -: 32];
+        item.wdata = new[1];
+        item.wdata[0] = frame_buf[count-41 -: 32];
+      end
+      SPI_AHB_RD32: begin
+        item.addr = frame_buf[count-9 -: 32];
+      end
+      SPI_AHB_WR_BURST: begin
+        item.burst_len = frame_buf[count-9 -: 5];
+        item.addr = frame_buf[count-17 -: 32];
+        if (burst_len > 0) begin
+          item.wdata = new[burst_len];
+          for (int i = 0; i < burst_len; i++)
+            item.wdata[i] = frame_buf[count-49-i*32 -: 32];
+        end
+      end
+      SPI_AHB_RD_BURST: begin
+        item.burst_len = frame_buf[count-9 -: 5];
+        item.addr = frame_buf[count-17 -: 32];
+      end
+      default: ; // illegal opcode
+    endcase
+  endfunction
+
+  virtual function void parse_response(spi_mon_item item, logic [559:0] frame_buf,
+                                        int unsigned count, spi_opcode_t opcode,
+                                        logic [4:0] burst_len);
+    if (count >= 8)
+      item.status = spi_status_t'(frame_buf[count-1 -: 8]);
+
+    case (opcode)
+      SPI_RD_CSR, SPI_AHB_RD32: begin
+        if (count >= 40) begin
+          item.rdata = new[1];
+          item.rdata[0] = frame_buf[count-9 -: 32];
+        end
+      end
+      SPI_AHB_RD_BURST: begin
+        if (count >= 8 + 32 * burst_len && burst_len > 0) begin
+          item.rdata = new[burst_len];
+          for (int i = 0; i < burst_len; i++)
+            item.rdata[i] = frame_buf[count-9-i*32 -: 32];
+        end
+      end
+      default: ; // write commands: only status
+    endcase
+  endfunction
+
+  virtual function int unsigned get_expected_response_bits(spi_opcode_t opcode,
+                                                            logic [4:0] burst_len);
+    case (opcode)
+      SPI_WR_CSR, SPI_AHB_WR32, SPI_AHB_WR_BURST:
+        return 8;
+      SPI_RD_CSR, SPI_AHB_RD32:
+        return 40;
+      SPI_AHB_RD_BURST:
+        return 8 + 32 * burst_len;
+      default:
+        return 8;
+    endcase
+  endfunction
+
+endclass : spi_monitor
+
+`endif // SPI_MONITOR_SV

@@ -1,309 +1,265 @@
-/******************************************************************************
- * SPI VIP Sequence Library
- * Description: Sequence library for SPI VIP
- ******************************************************************************/
-
 `ifndef SPI_SEQ_LIB_SV
 `define SPI_SEQ_LIB_SV
 
-class spi_base_seq extends uvm_sequence#(spi_item);
+class spi_base_seq extends uvm_sequence#(spi_drv_item);
 
-    `uvm_object_utils(spi_base_seq)
+  `uvm_object_utils(spi_base_seq)
+  `uvm_declare_p_sequencer(spi_sequencer)
 
-    function new(string name = "spi_base_seq");
-        super.new(name);
-    endfunction
+  function new(string name = "spi_base_seq");
+    super.new(name);
+  endfunction
 
-    virtual task pre_start();
-        if(starting_phase != null) begin
-            starting_phase.raise_objection(this, get_type_name());
-        end
-    endtask
+  virtual task pre_start();
+    uvm_phase phase = get_starting_phase();
+    if (phase != null)
+      phase.raise_objection(this);
+  endtask
 
-    virtual task post_start();
-        if(starting_phase != null) begin
-            starting_phase.drop_objection(this, get_type_name());
-        end
-    endtask
+  virtual task post_start();
+    uvm_phase phase = get_starting_phase();
+    if (phase != null)
+      phase.drop_objection(this);
+  endtask
 
-endclass
+endclass : spi_base_seq
 
 class spi_wr_csr_seq extends spi_base_seq;
 
-    `uvm_object_utils(spi_wr_csr_seq)
+  `uvm_object_utils(spi_wr_csr_seq)
 
-    rand bit [7:0] addr;
-    rand bit [31:0] data;
-    rand spi_lane_mode_t lane_mode;
+  rand logic [7:0]      reg_addr;
+  rand logic [31:0]     wdata;
+  rand spi_lane_mode_t  lane_mode;
 
-    function new(string name = "spi_wr_csr_seq");
-        super.new(name);
-    endfunction
+  constraint reg_addr_c { reg_addr < 8'h40; }
 
-    virtual task body();
-        spi_item trans;
-        trans = spi_item::type_id::create("trans");
+  function new(string name = "spi_wr_csr_seq");
+    super.new(name);
+  endfunction
 
-        start_item(trans);
-        trans.opcode = CMD_WR_CSR;
-        trans.addr = {24'h0, addr};
-        trans.data = data;
-        trans.lane_mode = lane_mode;
-        trans.direction = DIR_WRITE;
-        trans.burst_len = 1;
-        finish_item(trans);
-    endtask
+  virtual task body();
+    spi_drv_item item;
+    item = spi_drv_item::type_id::create("item");
+    start_item(item);
+    if (!item.randomize() with {
+      opcode       == SPI_WR_CSR;
+      reg_addr     == local::reg_addr;
+      wdata.size() == 1;
+      wdata[0]     == local::wdata;
+      lane_mode    == local::lane_mode;
+    }) `uvm_error(get_type_name(), "Randomization failed")
+    finish_item(item);
+  endtask
 
-endclass
+endclass : spi_wr_csr_seq
 
 class spi_rd_csr_seq extends spi_base_seq;
 
-    `uvm_object_utils(spi_rd_csr_seq)
+  `uvm_object_utils(spi_rd_csr_seq)
 
-    rand bit [7:0] addr;
-    rand spi_lane_mode_t lane_mode;
+  rand logic [7:0]      reg_addr;
+  rand spi_lane_mode_t  lane_mode;
 
-    bit [31:0] rdata;
-    spi_status_t status;
+  constraint reg_addr_c { reg_addr < 8'h40; }
 
-    function new(string name = "spi_rd_csr_seq");
-        super.new(name);
-    endfunction
+  function new(string name = "spi_rd_csr_seq");
+    super.new(name);
+  endfunction
 
-    virtual task body();
-        spi_item trans;
-        trans = spi_item::type_id::create("trans");
+  virtual task body();
+    spi_drv_item item;
+    item = spi_drv_item::type_id::create("item");
+    start_item(item);
+    if (!item.randomize() with {
+      opcode    == SPI_RD_CSR;
+      reg_addr  == local::reg_addr;
+      lane_mode == local::lane_mode;
+    }) `uvm_error(get_type_name(), "Randomization failed")
+    finish_item(item);
+  endtask
 
-        start_item(trans);
-        trans.opcode = CMD_RD_CSR;
-        trans.addr = {24'h0, addr};
-        trans.lane_mode = lane_mode;
-        trans.direction = DIR_READ;
-        trans.burst_len = 1;
-        finish_item(trans);
-
-        rdata = trans.data;
-        status = trans.status;
-    endtask
-
-endclass
+endclass : spi_rd_csr_seq
 
 class spi_ahb_wr32_seq extends spi_base_seq;
 
-    `uvm_object_utils(spi_ahb_wr32_seq)
+  `uvm_object_utils(spi_ahb_wr32_seq)
 
-    rand bit [31:0] addr;
-    rand bit [31:0] data;
-    rand spi_lane_mode_t lane_mode;
+  rand logic [31:0]     addr;
+  rand logic [31:0]     wdata;
+  rand spi_lane_mode_t  lane_mode;
 
-    function new(string name = "spi_ahb_wr32_seq");
-        super.new(name);
-    endfunction
+  constraint addr_c { addr[1:0] == 2'b00; }
 
-    constraint addr_aligned {
-        addr[1:0] == 2'b00;
-    }
+  function new(string name = "spi_ahb_wr32_seq");
+    super.new(name);
+  endfunction
 
-    virtual task body();
-        spi_item trans;
-        trans = spi_item::type_id::create("trans");
+  virtual task body();
+    spi_drv_item item;
+    item = spi_drv_item::type_id::create("item");
+    start_item(item);
+    if (!item.randomize() with {
+      opcode       == SPI_AHB_WR32;
+      addr         == local::addr;
+      wdata.size() == 1;
+      wdata[0]     == local::wdata;
+      lane_mode    == local::lane_mode;
+    }) `uvm_error(get_type_name(), "Randomization failed")
+    finish_item(item);
+  endtask
 
-        start_item(trans);
-        trans.opcode = CMD_AHB_WR32;
-        trans.addr = addr;
-        trans.data = data;
-        trans.lane_mode = lane_mode;
-        trans.direction = DIR_WRITE;
-        trans.burst_len = 1;
-        finish_item(trans);
-    endtask
-
-endclass
+endclass : spi_ahb_wr32_seq
 
 class spi_ahb_rd32_seq extends spi_base_seq;
 
-    `uvm_object_utils(spi_ahb_rd32_seq)
+  `uvm_object_utils(spi_ahb_rd32_seq)
 
-    rand bit [31:0] addr;
-    rand spi_lane_mode_t lane_mode;
+  rand logic [31:0]     addr;
+  rand spi_lane_mode_t  lane_mode;
 
-    bit [31:0] rdata;
-    spi_status_t status;
+  constraint addr_c { addr[1:0] == 2'b00; }
 
-    function new(string name = "spi_ahb_rd32_seq");
-        super.new(name);
-    endfunction
+  function new(string name = "spi_ahb_rd32_seq");
+    super.new(name);
+  endfunction
 
-    constraint addr_aligned {
-        addr[1:0] == 2'b00;
-    }
+  virtual task body();
+    spi_drv_item item;
+    item = spi_drv_item::type_id::create("item");
+    start_item(item);
+    if (!item.randomize() with {
+      opcode    == SPI_AHB_RD32;
+      addr      == local::addr;
+      lane_mode == local::lane_mode;
+    }) `uvm_error(get_type_name(), "Randomization failed")
+    finish_item(item);
+  endtask
 
-    virtual task body();
-        spi_item trans;
-        trans = spi_item::type_id::create("trans");
-
-        start_item(trans);
-        trans.opcode = CMD_AHB_RD32;
-        trans.addr = addr;
-        trans.lane_mode = lane_mode;
-        trans.direction = DIR_READ;
-        trans.burst_len = 1;
-        finish_item(trans);
-
-        rdata = trans.data;
-        status = trans.status;
-    endtask
-
-endclass
+endclass : spi_ahb_rd32_seq
 
 class spi_ahb_wr_burst_seq extends spi_base_seq;
 
-    `uvm_object_utils(spi_ahb_wr_burst_seq)
+  `uvm_object_utils(spi_ahb_wr_burst_seq)
 
-    rand bit [31:0] addr;
-    rand bit [4:0] burst_len;
-    rand spi_lane_mode_t lane_mode;
+  rand logic [31:0]     addr;
+  rand logic [4:0]      burst_len;
+  rand logic [31:0]     wdata[];
+  rand spi_lane_mode_t  lane_mode;
 
-    rand bit [31:0] wdata_queue[$];
+  constraint burst_len_c { burst_len inside {1, 4, 8, 16}; }
+  constraint addr_c      { addr[1:0] == 2'b00; }
+  constraint wdata_size  { wdata.size() == burst_len; }
 
-    function new(string name = "spi_ahb_wr_burst_seq");
-        super.new(name);
-    endfunction
+  function new(string name = "spi_ahb_wr_burst_seq");
+    super.new(name);
+  endfunction
 
-    constraint burst_len_valid {
-        burst_len inside {1, 4, 8, 16};
-    }
+  virtual task body();
+    spi_drv_item item;
+    item = spi_drv_item::type_id::create("item");
+    start_item(item);
+    if (!item.randomize() with {
+      opcode       == SPI_AHB_WR_BURST;
+      addr         == local::addr;
+      burst_len    == local::burst_len;
+      wdata.size() == local::burst_len;
+      foreach (wdata[i]) wdata[i] == local::wdata[i];
+      lane_mode    == local::lane_mode;
+    }) `uvm_error(get_type_name(), "Randomization failed")
+    finish_item(item);
+  endtask
 
-    constraint addr_aligned {
-        addr[1:0] == 2'b00;
-    }
-
-    constraint data_queue_size {
-        wdata_queue.size() == burst_len;
-    }
-
-    constraint burst_bound {
-        (addr[9:0] + 4*(burst_len-1)) < 1024;
-    }
-
-    virtual task body();
-        spi_item trans;
-        trans = spi_item::type_id::create("trans");
-
-        start_item(trans);
-        trans.opcode = CMD_AHB_WR_BURST;
-        trans.addr = addr;
-        trans.burst_len = burst_len;
-        trans.lane_mode = lane_mode;
-        trans.direction = DIR_WRITE;
-        foreach(wdata_queue[i]) begin
-            trans.wdata_queue.push_back(wdata_queue[i]);
-        end
-        finish_item(trans);
-    endtask
-
-endclass
+endclass : spi_ahb_wr_burst_seq
 
 class spi_ahb_rd_burst_seq extends spi_base_seq;
 
-    `uvm_object_utils(spi_ahb_rd_burst_seq)
+  `uvm_object_utils(spi_ahb_rd_burst_seq)
 
-    rand bit [31:0] addr;
-    rand bit [4:0] burst_len;
-    rand spi_lane_mode_t lane_mode;
+  rand logic [31:0]     addr;
+  rand logic [4:0]      burst_len;
+  rand spi_lane_mode_t  lane_mode;
 
-    bit [31:0] rdata_queue[$];
-    spi_status_t status;
+  constraint burst_len_c { burst_len inside {1, 4, 8, 16}; }
+  constraint addr_c      { addr[1:0] == 2'b00; }
 
-    function new(string name = "spi_ahb_rd_burst_seq");
-        super.new(name);
-    endfunction
+  function new(string name = "spi_ahb_rd_burst_seq");
+    super.new(name);
+  endfunction
 
-    constraint burst_len_valid {
-        burst_len inside {1, 4, 8, 16};
-    }
+  virtual task body();
+    spi_drv_item item;
+    item = spi_drv_item::type_id::create("item");
+    start_item(item);
+    if (!item.randomize() with {
+      opcode    == SPI_AHB_RD_BURST;
+      addr      == local::addr;
+      burst_len == local::burst_len;
+      lane_mode == local::lane_mode;
+    }) `uvm_error(get_type_name(), "Randomization failed")
+    finish_item(item);
+  endtask
 
-    constraint addr_aligned {
-        addr[1:0] == 2'b00;
-    }
+endclass : spi_ahb_rd_burst_seq
 
-    constraint burst_bound {
-        (addr[9:0] + 4*(burst_len-1)) < 1024;
-    }
+class spi_random_seq extends spi_base_seq;
 
-    virtual task body();
-        spi_item trans;
-        trans = spi_item::type_id::create("trans");
+  `uvm_object_utils(spi_random_seq)
 
-        start_item(trans);
-        trans.opcode = CMD_AHB_RD_BURST;
-        trans.addr = addr;
-        trans.burst_len = burst_len;
-        trans.lane_mode = lane_mode;
-        trans.direction = DIR_READ;
-        finish_item(trans);
+  rand int unsigned num_transactions;
 
-        rdata_queue = trans.rdata_queue;
-        status = trans.status;
-    endtask
+  constraint num_trans_c { soft num_transactions inside {[5:20]}; }
 
-endclass
+  function new(string name = "spi_random_seq");
+    super.new(name);
+  endfunction
 
-class spi_all_ops_seq extends spi_base_seq;
+  virtual task body();
+    for (int i = 0; i < num_transactions; i++) begin
+      spi_drv_item item;
+      item = spi_drv_item::type_id::create("item");
+      start_item(item);
+      if (!item.randomize())
+        `uvm_error(get_type_name(), "Randomization failed")
+      finish_item(item);
+    end
+  endtask
 
-    `uvm_object_utils(spi_all_ops_seq)
+endclass : spi_random_seq
 
-    rand int num_iterations;
+class spi_frame_abort_seq extends spi_base_seq;
 
-    function new(string name = "spi_all_ops_seq");
-        super.new(name);
-        num_iterations = 10;
-    endfunction
+  `uvm_object_utils(spi_frame_abort_seq)
 
-    virtual task body();
-        spi_wr_csr_seq wr_csr;
-        spi_rd_csr_seq rd_csr;
-        spi_ahb_wr32_seq wr32;
-        spi_ahb_rd32_seq rd32;
-        spi_ahb_wr_burst_seq wr_burst;
-        spi_ahb_rd_burst_seq rd_burst;
+  rand spi_opcode_t     opcode;
+  rand logic [31:0]     addr;
+  rand logic [4:0]      burst_len;
+  rand spi_lane_mode_t  lane_mode;
+  rand int unsigned     abort_after_bits;
 
-        repeat(num_iterations) begin
-            randcase
-                1: begin
-                    wr_csr = spi_wr_csr_seq::type_id::create("wr_csr");
-                    wr_csr.randomize();
-                    wr_csr.start(m_sequencer);
-                end
-                1: begin
-                    rd_csr = spi_rd_csr_seq::type_id::create("rd_csr");
-                    rd_csr.randomize();
-                    rd_csr.start(m_sequencer);
-                end
-                1: begin
-                    wr32 = spi_ahb_wr32_seq::type_id::create("wr32");
-                    wr32.randomize();
-                    wr32.start(m_sequencer);
-                end
-                1: begin
-                    rd32 = spi_ahb_rd32_seq::type_id::create("rd32");
-                    rd32.randomize();
-                    rd32.start(m_sequencer);
-                end
-                1: begin
-                    wr_burst = spi_ahb_wr_burst_seq::type_id::create("wr_burst");
-                    wr_burst.randomize();
-                    wr_burst.start(m_sequencer);
-                end
-                1: begin
-                    rd_burst = spi_ahb_rd_burst_seq::type_id::create("rd_burst");
-                    rd_burst.randomize();
-                    rd_burst.start(m_sequencer);
-                end
-            endcase
-        end
-    endtask
+  constraint burst_len_c { burst_len inside {1, 4, 8, 16}; }
+  constraint addr_c      { addr[1:0] == 2'b00; }
+  constraint abort_c     { abort_after_bits inside {[4:40]}; }
 
-endclass
+  function new(string name = "spi_frame_abort_seq");
+    super.new(name);
+  endfunction
 
-`endif
+  virtual task body();
+    spi_drv_item item;
+    item = spi_drv_item::type_id::create("item");
+    start_item(item);
+    if (!item.randomize() with {
+      opcode          == local::opcode;
+      addr            == local::addr;
+      burst_len       == local::burst_len;
+      lane_mode       == local::lane_mode;
+      frame_abort     == 1;
+      abort_after_bits == local::abort_after_bits;
+    }) `uvm_error(get_type_name(), "Randomization failed")
+    finish_item(item);
+  endtask
+
+endclass : spi_frame_abort_seq
+
+`endif // SPI_SEQ_LIB_SV

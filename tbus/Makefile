@@ -12,7 +12,7 @@ VERDI     = verdi
 
 SCRIPT_DIR    := $(shell pwd)
 APLC_TB_HOME  := $(SCRIPT_DIR)
-APLC_RTL_HOME := $(HOME)/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/rtl
+APLC_RTL_HOME := $(SCRIPT_DIR)/../../cc_APLC_Lite/rtl
 
 export APLC_TB_HOME
 export APLC_RTL_HOME
@@ -20,7 +20,7 @@ export APLC_RTL_HOME
 TEST     ?= aplc_smoke_test
 SEED     ?= $(shell date +%s)
 SIM_DIR  ?= sim_work
-GUI      ?= 0
+GUI      ?= 1
 DUMP     ?= 1
 COV      ?= 0
 XPROP    ?= 0
@@ -35,11 +35,7 @@ VCS_COMP_OPTS = \
     -lca \
     +incdir+$(APLC_TB_HOME)/tb/if \
     +incdir+$(APLC_TB_HOME)/tb/env \
-    +incdir+$(APLC_TB_HOME)/vip/spi_vip \
-    +incdir+$(APLC_TB_HOME)/vip/yuu_ahb/include \
-    +incdir+$(APLC_TB_HOME)/vip/yuu_ahb/src/sv \
-    +incdir+$(APLC_TB_HOME)/vip/yuu_ahb/seq \
-    +incdir+$(APLC_TB_HOME)/vip/yuu_ahb/pkg/yuu_common \
+    +incdir+$(APLC_TB_HOME)/../vip/spi \
     -timescale=1ns/1ps \
     -ntb_opts uvm-1.2 \
     +define+UVM_NO_DPI \
@@ -85,19 +81,19 @@ sim: comp
 	cd $(SIM_DIR) && ./simv $(VCS_SIM_OPTS)
 
 wave:
-	cd $(SIM_DIR) && $(VERDI) -f $(APLC_TB_HOME)/filelist/aplc_verif.f -ssf $(WAVE_FSDB) -top tb_top -nologo &
+	cd $(SIM_DIR) && $(VERDI) -f $(APLC_TB_HOME)/filelist/aplc_verif.f -ssf $(WAVE_FSDB) -top aplc_tb_top -nologo &
 
 cov_report:
 	cd $(SIM_DIR) && urg -dir $(COV_DIR)/$(TEST).vdb -report cov_report
 
 cov_view:
-	cd $(SIM_DIR) && $(VERDI) -cov -covdir $(COV_DIR)/$(TEST).vdb -top tb_top &
+	cd $(SIM_DIR) && $(VERDI) -cov -covdir $(COV_DIR)/$(TEST).vdb -top aplc_tb_top &
 
 cov_merge:
 	cd $(SIM_DIR) && urg -dir $(COV_DIR)/*.vdb -report cov_merge_report
 
 cov_merge_view:
-	cd $(SIM_DIR) && $(VERDI) -cov -covdir $(COV_DIR)/*.vdb -top tb_top &
+	cd $(SIM_DIR) && $(VERDI) -cov -covdir $(COV_DIR)/*.vdb -top aplc_tb_top &
 
 cov_multi: comp
 	@for i in $$(seq 1 $(COV_SEEDS)); do \

@@ -71,6 +71,8 @@ driver的驱动逻辑必须严格遵循从LRS时序图提取的时序关系，�
 
 **Burst payload驱动**：如果1.1确认burst payload与header连续，driver在header最后一拍后必须立即驱动首拍payload，不插入空闲周期
 
+除非注错情况下，不要给接口信号驱动X态
+
 #### 2.2 Monitor实现规则
 
 **首拍数据采集**：根据1.1中提取的帧起始时序实现：

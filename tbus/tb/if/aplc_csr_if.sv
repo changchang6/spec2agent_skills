@@ -1,11 +1,7 @@
 `ifndef APLC_CSR_IF_SV
 `define APLC_CSR_IF_SV
 
-interface aplc_csr_if (
-    input logic clk,
-    input logic rst_n
-);
-
+interface aplc_csr_if (input clk, input rst_n);
     logic        csr_rd_en;
     logic        csr_wr_en;
     logic [7:0]  csr_addr;
@@ -16,8 +12,8 @@ interface aplc_csr_if (
         input csr_rd_en, csr_wr_en, csr_addr, csr_wdata, csr_rdata;
     endclocking
 
-    modport mon_mp (clocking mon_cb, input clk, rst_n);
-
+    modport dut (output csr_rd_en, csr_wr_en, csr_addr, csr_wdata,
+                 input  csr_rdata);
 endinterface
 
 `endif

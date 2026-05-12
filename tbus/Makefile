@@ -12,15 +12,17 @@ VERDI     = verdi
 
 SCRIPT_DIR    := $(shell pwd)
 APLC_TB_HOME  := $(SCRIPT_DIR)
-APLC_RTL_HOME := $(SCRIPT_DIR)/../../cc_APLC_Lite/rtl
+APLC_RTL_HOME := $(HOME)/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/rtl
+VIP_SPI_HOME  := $(SCRIPT_DIR)/../vip/spi
 
 export APLC_TB_HOME
 export APLC_RTL_HOME
+export VIP_SPI_HOME
 
 TEST     ?= aplc_smoke_test
 SEED     ?= $(shell date +%s)
 SIM_DIR  ?= sim_work
-GUI      ?= 1
+GUI      ?= 0
 DUMP     ?= 1
 COV      ?= 0
 XPROP    ?= 0
@@ -35,7 +37,9 @@ VCS_COMP_OPTS = \
     -lca \
     +incdir+$(APLC_TB_HOME)/tb/if \
     +incdir+$(APLC_TB_HOME)/tb/env \
-    +incdir+$(APLC_TB_HOME)/../vip/spi \
+    +incdir+$(APLC_TB_HOME)/tb/uvc/spi_agent \
+    +incdir+$(VIP_SPI_HOME) \
+    +incdir+$(APLC_RTL_HOME) \
     -timescale=1ns/1ps \
     -ntb_opts uvm-1.2 \
     +define+UVM_NO_DPI \
@@ -71,7 +75,7 @@ VCS_SIM_OPTS += -gui=verdi
 endif
 
 # -------------------- Targets --------------------
-.PHONY: comp sim wave clean cov_report cov_view cov_merge cov_merge_view cov_multi
+.PHONY: comp sim wave clean
 
 comp:
 	@mkdir -p $(SIM_DIR)
@@ -82,24 +86,6 @@ sim: comp
 
 wave:
 	cd $(SIM_DIR) && $(VERDI) -f $(APLC_TB_HOME)/filelist/aplc_verif.f -ssf $(WAVE_FSDB) -top aplc_tb_top -nologo &
-
-cov_report:
-	cd $(SIM_DIR) && urg -dir $(COV_DIR)/$(TEST).vdb -report cov_report
-
-cov_view:
-	cd $(SIM_DIR) && $(VERDI) -cov -covdir $(COV_DIR)/$(TEST).vdb -top aplc_tb_top &
-
-cov_merge:
-	cd $(SIM_DIR) && urg -dir $(COV_DIR)/*.vdb -report cov_merge_report
-
-cov_merge_view:
-	cd $(SIM_DIR) && $(VERDI) -cov -covdir $(COV_DIR)/*.vdb -top aplc_tb_top &
-
-cov_multi: comp
-	@for i in $$(seq 1 $(COV_SEEDS)); do \
-		echo "=== Coverage run $$i/$(COV_SEEDS) seed=$$i ==="; \
-		cd $(SIM_DIR) && ./simv $(VCS_SIM_OPTS) +ntb_random_seed=$$i; \
-	done
 
 clean:
 	rm -rf $(SIM_DIR)

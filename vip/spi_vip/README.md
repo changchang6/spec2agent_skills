@@ -1,169 +1,184 @@
-# SPI VIP for APLC-Lite
+# APLC SPI VIP 使用说明
 
-## Overview
+## 概述
 
-This VIP models the ATE (Automated Test Equipment) side of the APLC-Lite class-SPI half-duplex test interface. It supports all 6 command opcodes, 4 lane modes, burst transfers, and error scenarios.
+APLC SPI VIP 是为 APLC-Lite 模块的类 SPI 半双工测试接口开发的 UVM Agent VIP。该 VIP 支持模拟 ATE 主机行为，驱动命令帧并接收响应。
 
-## File Structure
+## 支持特性
+
+- 4 种通道模式：1-bit / 4-bit / 8-bit / 16-bit
+- 6 种命令 opcode：WR_CSR(0x10)、RD_CSR(0x11)、AHB_WR32(0x20)、AHB_RD32(0x21)、AHB_WR_BURST(0x22)、AHB_RD_BURST(0x23)
+- 10 种状态码：OK(0x00)、FRAME_ERR(0x01)、BAD_OPCODE(0x02)、NOT_IN_TEST(0x04)、DISABLED(0x08)、BAD_REG(0x10)、ALIGN_ERR(0x20)、AHB_ERR(0x40)、BAD_BURST(0x80)、BURST_BOUND(0x81)
+- AHB Burst：INCR4 / INCR8 / INCR16
+- FIFO 状态监控
+- SVA 协议断言检查
+- 功能覆盖率收集
+
+## 文件结构
 
 ```
 vip/spi_vip/
-├── spi_if.sv            # SystemVerilog interface with clocking blocks
-├── spi_types.sv         # Type definitions (enums, typedefs)
-├── spi_item.sv          # Base sequence item (transaction)
-├── spi_mon_item.sv      # Monitor item with timing/observability fields
-├── spi_drv_item.sv      # Driver item with delay/abort controls
-├── spi_agent_config.sv  # Agent configuration (extends uvm_component)
-├── spi_monitor.sv       # Protocol monitor
-├── spi_driver.sv        # ATE-side driver
-├── spi_sequencer.sv     # Sequencer
-├── spi_coverage.sv      # Functional coverage collector
-├── spi_agent.sv         # Agent (combines all components)
-├── spi_seq_lib.sv       # Sequence library
-└── spi_pkg.sv           # Package (includes all files)
+├── aplc_spi_pkg.sv          # Package（包含所有文件）
+├── aplc_spi_types.sv         # 类型定义（枚举、函数）
+├── aplc_spi_if.sv            # 接口（含 SVA 断言）
+├── aplc_spi_item.sv          # Sequence Item
+├── aplc_spi_mon_item.sv      # Monitor Item
+├── aplc_spi_agent_config.sv  # Agent 配置
+├── aplc_spi_driver.sv        # Driver（ATE 主机侧）
+├── aplc_spi_monitor.sv       # Monitor（观测请求和响应）
+├── aplc_spi_sequencer.sv     # Sequencer
+├── aplc_spi_coverage.sv      # 功能覆盖率
+├── aplc_spi_agent.sv         # Agent
+└── aplc_spi_seq_lib.sv       # 序列库
 ```
 
-## Integration
+## 编译选项
 
-### 1. Compile Order
+需要在编译时添加以下选项：
 
 ```makefile
-# The interface file is included outside the package via `include in spi_pkg.sv
-# Compile spi_pkg.sv, which pulls in all other files
-spi_pkg.sv
++incdir+$(VIP_PATH)/spi_vip
+-ntb_opts uvm-1.2
 ```
 
-Add `+incdir+<path_to_spi_vip>` to your VCS compile options.
+编译顺序：
+1. `aplc_spi_if.sv`（接口定义，需在 package 之前编译）
+2. `aplc_spi_pkg.sv`（包文件，内部 include 所有其他文件）
 
-### 2. Interface Instantiation
+## 配置参数
 
-Instantiate the interface in your testbench top module:
+### aplc_spi_agent_config
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| is_active | uvm_active_passive_enum | UVM_ACTIVE | Agent 模式：ACTIVE 驱动总线，PASSIVE 仅监控 |
+| has_coverage | bit | 1 | 是否使能覆盖率收集 |
+| has_checks | bit | 1 | 是否使能 SVA 断言检查 |
+| default_lane_mode | aplc_lane_mode_e | APLC_LANE_16BIT | 默认通道模式 |
+| default_en | bit | 1'b1 | 默认模块使能 |
+| default_test_mode | bit | 1'b1 | 默认测试模式 |
+
+### 配置示例
 
 ```systemverilog
-spi_if spi_vif(.clk(clk));
-assign spi_vif.rst_n = rst_n;
+aplc_spi_agent_config spi_cfg = aplc_spi_agent_config::type_id::create("spi_cfg");
+spi_cfg.is_active         = UVM_ACTIVE;
+spi_cfg.has_coverage      = 1;
+spi_cfg.has_checks        = 1;
+spi_cfg.default_lane_mode = APLC_LANE_16BIT;
+spi_cfg.default_en        = 1'b1;
+spi_cfg.default_test_mode = 1'b1;
+spi_cfg.set_vif(spi_if);  // 设置虚接口
 
-// Connect to DUT
-APLC_LITE u_dut (
-  .pcs_n_i       (spi_vif.pcs_n),
-  .pdi_i         (spi_vif.pdi),
-  .pdo_o         (spi_vif.pdo),
-  .pdo_oe_o      (spi_vif.pdo_oe),
-  .lane_mode_i   (spi_vif.lane_mode),
-  .en_i          (spi_vif.en),
-  .test_mode_i   (spi_vif.test_mode),
-  .rxfifo_empty_o(spi_vif.rxfifo_empty),
-  .rxfifo_full_o (spi_vif.rxfifo_full),
-  .txfifo_empty_o(spi_vif.txfifo_empty),
-  .txfifo_full_o (spi_vif.txfifo_full),
-  ...
-);
+uvm_config_db#(aplc_spi_agent_config)::set(null, "uvm_test_top.env.spi_agent", "agent_config", spi_cfg);
 ```
 
-### 3. Configuration
+## 接口连接
 
-Set the virtual interface and agent config in your test:
+### 信号列表
+
+| 接口信号 | 方向 | 位宽 | 说明 |
+|----------|------|------|------|
+| clk | input | 1 | 时钟（100MHz） |
+| rst_n | input | 1 | 异步复位，低有效 |
+| en | output | 1 | 模块使能 |
+| test_mode | output | 1 | 测试模式使能 |
+| pcs_n | output | 1 | 片选，低有效 |
+| pdi[15:0] | output | 16 | 并行数据输入 |
+| pdo[15:0] | input | 16 | 并行数据输出 |
+| pdo_oe | input | 1 | 输出使能 |
+| lane_mode[1:0] | output | 2 | 通道模式 |
+| rxfifo_empty | input | 1 | RX FIFO 空状态 |
+| rxfifo_full | input | 1 | RX FIFO 满状态 |
+| txfifo_empty | input | 1 | TX FIFO 空状态 |
+| txfifo_full | input | 1 | TX FIFO 满状态 |
+
+### 连接示例
 
 ```systemverilog
-// Create agent config
-spi_agent_config spi_cfg = spi_agent_config::type_id::create("spi_cfg", this);
-spi_cfg.set_is_active(UVM_ACTIVE);
-spi_cfg.set_has_coverage(1);
-spi_cfg.set_vif(spi_vif);    // Set virtual interface
-spi_cfg.set_en(1'b1);        // Enable DUT
-spi_cfg.set_test_mode(1'b1); // Put DUT in test mode
-spi_cfg.set_lane_mode(SPI_LANE_16BIT);
+aplc_spi_if spi_if (.clk(clk), .rst_n(rst_n));
 
-// Pass to agent via config_db
-uvm_config_db#(spi_agent_config)::set(this, "m_spi_agent", "spi_agent_config", spi_cfg);
+assign pcs_n     = spi_if.pcs_n;
+assign pdi       = spi_if.pdi;
+assign en        = spi_if.en;
+assign test_mode = spi_if.test_mode;
+assign lane_mode = spi_if.lane_mode;
+assign spi_if.pdo           = pdo;
+assign spi_if.pdo_oe       = pdo_oe;
+assign spi_if.rxfifo_empty = rxfifo_empty;
+assign spi_if.rxfifo_full  = rxfifo_full;
+assign spi_if.txfifo_empty = txfifo_empty;
+assign spi_if.txfifo_full  = txfifo_full;
 ```
 
-### 4. Running Sequences
+## SVA 断言
+
+VIP 接口中内置以下 SVA 断言，可通过接口开关独立控制：
+
+| 断言组 | 开关 | 检查内容 |
+|--------|------|----------|
+| 复位检查 | en_reset_checks | 复位后 pdo_oe=0、FIFO 空 |
+| X/Z 检查 | en_x_z_checks | 关键信号非 X/Z |
+| 协议检查 | en_protocol_checks | lane_mode 稳定性、帧协议、turnaround、FIFO 互斥 |
+
+## 序列库
+
+### 基本序列
+
+| 序列名 | 说明 |
+|--------|------|
+| aplc_spi_wr_csr_seq | CSR 写序列 |
+| aplc_spi_rd_csr_seq | CSR 读序列 |
+| aplc_spi_ahb_wr32_seq | AHB 单次写序列 |
+| aplc_spi_ahb_rd32_seq | AHB 单次读序列 |
+| aplc_spi_ahb_wr_burst_seq | AHB Burst 写序列 |
+| aplc_spi_ahb_rd_burst_seq | AHB Burst 读序列 |
+
+### 错误注入序列
+
+| 序列名 | 说明 |
+|--------|------|
+| aplc_spi_bad_opcode_seq | 非法 opcode 注入 |
+| aplc_spi_disabled_seq | 模块未使能（en=0） |
+| aplc_spi_not_in_test_seq | 非测试模式（test_mode=0） |
+| aplc_spi_bad_reg_seq | 非法 CSR 地址注入 |
+| aplc_spi_align_err_seq | 地址非对齐注入 |
+| aplc_spi_bad_burst_seq | 非法 burst_len 注入 |
+| aplc_spi_burst_bound_seq | Burst 跨 1KB 边界注入 |
+
+### 随机序列
+
+| 序列名 | 说明 |
+|--------|------|
+| aplc_spi_rand_multi_cmd_seq | 随机多命令序列 |
+| aplc_spi_full_cross_seq | 全交叉覆盖序列 |
+
+### 使用基类序列辅助方法
+
+`aplc_spi_base_seq` 提供以下便捷方法：
 
 ```systemverilog
-// WR_CSR command
-spi_wr_csr_seq wr_seq = spi_wr_csr_seq::type_id::create("wr_seq");
-wr_seq.reg_addr  = 8'h04;
-wr_seq.wdata     = 32'h0000_0001;
-wr_seq.lane_mode = SPI_LANE_16BIT;
-wr_seq.start(sequencer);
+// CSR 读写
+send_wr_csr(reg_addr, wdata, lane_mode);
+send_rd_csr(reg_addr, rdata, status, lane_mode);
 
-// RD_CSR command
-spi_rd_csr_seq rd_seq = spi_rd_csr_seq::type_id::create("rd_seq");
-rd_seq.reg_addr  = 8'h00;
-rd_seq.lane_mode = SPI_LANE_16BIT;
-rd_seq.start(sequencer);
+// AHB 单次读写
+send_ahb_wr32(addr, wdata, status, lane_mode);
+send_ahb_rd32(addr, rdata, status, lane_mode);
 
-// AHB write
-spi_ahb_wr32_seq wr32_seq = spi_ahb_wr32_seq::type_id::create("wr32_seq");
-wr32_seq.addr      = 32'h0000_1000;
-wr32_seq.wdata     = 32'hDEAD_BEEF;
-wr32_seq.lane_mode = SPI_LANE_16BIT;
-wr32_seq.start(sequencer);
-
-// AHB burst read
-spi_ahb_rd_burst_seq burst_seq = spi_ahb_rd_burst_seq::type_id::create("burst_seq");
-burst_seq.addr      = 32'h0000_1000;
-burst_seq.burst_len = 5'd4;
-burst_seq.lane_mode = SPI_LANE_16BIT;
-burst_seq.start(sequencer);
+// AHB Burst 读写
+send_ahb_wr_burst(addr, burst_len, wdata_q, status, lane_mode);
+send_ahb_rd_burst(addr, burst_len, rdata_q, status, lane_mode);
 ```
 
-## Configuration Parameters
+## 覆盖率
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| is_active | uvm_active_passive_enum | UVM_ACTIVE | Agent mode |
-| has_coverage | bit | 1 | Enable coverage collector |
-| has_checks | bit | 1 | Enable protocol checks |
-| en | logic | 1'b1 | DUT enable signal |
-| test_mode | logic | 1'b1 | DUT test mode signal |
-| lane_mode | spi_lane_mode_t | SPI_LANE_16BIT | Default lane mode |
-| driving_delay | int unsigned | 0 | Inter-transaction delay |
+VIP 自动收集以下功能覆盖率：
 
-## Supported Opcodes
-
-| Opcode | Value | Sequence | Description |
-|--------|-------|----------|-------------|
-| SPI_WR_CSR | 0x10 | spi_wr_csr_seq | CSR register write |
-| SPI_RD_CSR | 0x11 | spi_rd_csr_seq | CSR register read |
-| SPI_AHB_WR32 | 0x20 | spi_ahb_wr32_seq | AHB single write |
-| SPI_AHB_RD32 | 0x21 | spi_ahb_rd32_seq | AHB single read |
-| SPI_AHB_WR_BURST | 0x22 | spi_ahb_wr_burst_seq | AHB burst write |
-| SPI_AHB_RD_BURST | 0x23 | spi_ahb_rd_burst_seq | AHB burst read |
-
-## Lane Modes
-
-| Mode | Value | Width | Throughput @100MHz |
-|------|-------|-------|--------------------|
-| SPI_LANE_1BIT | 2'b00 | 1-bit | 12.5 MB/s |
-| SPI_LANE_4BIT | 2'b01 | 4-bit | 50 MB/s |
-| SPI_LANE_8BIT | 2'b10 | 8-bit | 100 MB/s |
-| SPI_LANE_16BIT | 2'b11 | 16-bit | 200 MB/s |
-
-## Status Codes
-
-| Code | Value | Description |
-|------|-------|-------------|
-| SPI_STS_OK | 0x00 | Success |
-| SPI_STS_FRAME_ERR | 0x01 | Frame abort |
-| SPI_STS_BAD_OPCODE | 0x02 | Illegal opcode |
-| SPI_STS_NOT_IN_TEST | 0x04 | Not in test mode |
-| SPI_STS_DISABLED | 0x08 | Module disabled |
-| SPI_STS_BAD_REG | 0x10 | Illegal CSR address |
-| SPI_STS_ALIGN_ERR | 0x20 | Address alignment error |
-| SPI_STS_AHB_ERR | 0x40 | AHB error/timeout |
-| SPI_STS_BAD_BURST | 0x80 | Illegal burst length |
-| SPI_STS_BURST_BOUND | 0x81 | 1KB boundary crossing |
-
-## Coverage
-
-The coverage collector (`spi_coverage`) tracks:
-- Opcode coverage (6 legal opcodes)
-- Lane mode coverage (4 modes)
-- Status code coverage (10 codes)
-- Burst length coverage (legal + illegal)
-- Cross coverage: opcode x lane_mode, opcode x status
-- CSR address ranges
-- AHB address alignment
-- FIFO status flags
+- opcode 覆盖（6 种命令类型）
+- lane_mode 覆盖（4 种通道模式）
+- status 覆盖（10 种状态码）
+- burst_len 覆盖（1/4/8/16）
+- opcode x lane_mode 交叉覆盖
+- opcode x status 交叉覆盖
+- FIFO 状态覆盖

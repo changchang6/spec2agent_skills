@@ -9,11 +9,10 @@
 # -------------------- Configuration --------------------
 VCS       = vcs
 VERDI     = verdi
-VERDI_HOME ?= /home/xingchangchang/ProgramFiles/vcs_verdi2018/synopsys/verdi_201809/verdi/Verdi_O-2018.09-SP2
 
 SCRIPT_DIR    := $(shell pwd)
 APLC_TB_HOME  := $(SCRIPT_DIR)
-APLC_RTL_HOME := $(SCRIPT_DIR)/../../cc_APLC_Lite/rtl
+APLC_RTL_HOME := $(HOME)/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/rtl
 
 export APLC_TB_HOME
 export APLC_RTL_HOME
@@ -34,10 +33,13 @@ VCS_COMP_OPTS = \
     -debug_access+all \
     -kdb \
     -lca \
-    +incdir+$(APLC_TB_HOME)/../vip/spi_vip \
-    +incdir+$(APLC_TB_HOME)/if \
-    +incdir+$(APLC_TB_HOME)/env \
-    +incdir+$(APLC_TB_HOME)/tc \
+    +incdir+$(APLC_TB_HOME)/tb/if \
+    +incdir+$(APLC_TB_HOME)/tb/env \
+    +incdir+$(APLC_TB_HOME)/vip/spi_vip \
+    +incdir+$(APLC_TB_HOME)/vip/yuu_ahb/include \
+    +incdir+$(APLC_TB_HOME)/vip/yuu_ahb/src/sv \
+    +incdir+$(APLC_TB_HOME)/vip/yuu_ahb/seq \
+    +incdir+$(APLC_TB_HOME)/vip/yuu_ahb/pkg/yuu_common \
     -timescale=1ns/1ps \
     -ntb_opts uvm-1.2 \
     +define+UVM_NO_DPI \
@@ -65,8 +67,6 @@ endif
 # Waveform dump (default on)
 ifeq ($(DUMP),1)
 VCS_COMP_OPTS += +define+DUMP_FSDB
-VCS_COMP_OPTS += -P $(VERDI_HOME)/share/PLI/VCS/linux64/novas.tab
-VCS_COMP_OPTS += $(VERDI_HOME)/share/PLI/VCS/linux64/pli.a
 endif
 
 # GUI (default off)
@@ -75,7 +75,7 @@ VCS_SIM_OPTS += -gui=verdi
 endif
 
 # -------------------- Targets --------------------
-.PHONY: comp sim wave clean cov_report cov_view
+.PHONY: comp sim wave clean cov_report cov_view cov_merge cov_merge_view cov_multi
 
 comp:
 	@mkdir -p $(SIM_DIR)
@@ -92,6 +92,18 @@ cov_report:
 
 cov_view:
 	cd $(SIM_DIR) && $(VERDI) -cov -covdir $(COV_DIR)/$(TEST).vdb -top tb_top &
+
+cov_merge:
+	cd $(SIM_DIR) && urg -dir $(COV_DIR)/*.vdb -report cov_merge_report
+
+cov_merge_view:
+	cd $(SIM_DIR) && $(VERDI) -cov -covdir $(COV_DIR)/*.vdb -top tb_top &
+
+cov_multi: comp
+	@for i in $$(seq 1 $(COV_SEEDS)); do \
+		echo "=== Coverage run $$i/$(COV_SEEDS) seed=$$i ==="; \
+		cd $(SIM_DIR) && ./simv $(VCS_SIM_OPTS) +ntb_random_seed=$$i; \
+	done
 
 clean:
 	rm -rf $(SIM_DIR)

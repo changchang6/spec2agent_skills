@@ -16,22 +16,35 @@ allowed-tools: Read,Edit,Grep,Bash(python3:*,ls,find)
 
 ### 步骤2: 生成VIP
 
+VIP接口中需要生成SVA检查断言，断言基于RTM和LRS文档中的接口时序生成，常见SVA类型如下：
+ - 时序检查：握手信号（HREADY/HTRANS）、建立保持时间。
+ - 传输合规性：突发类型（BURST）、传输大小（SIZE）、地址对齐。
+ - 状态机检查：总线状态（IDLE/BUSY/NONSEQ/SEQ）跳转是否合法。
+ - 错误注入检测：当 VIP 配置为错误模式时，DUT 是否正确处理异常（如 ERROR 响应）。
+VIP中monitor支持打印检测到的transaction
+VIP中序列库足以构建RTM中Testecase List所有测试用例需求
+VIP中driver需等待复位结束后进行接口信号驱动
+
 ### 步骤3: 生成example TB验证VIP基本功能
 
 如果用户在input_config.json中提供了TB_gen的相关信息，生成完整的example UVM testbench，验证生成的VIP的基本功能。
 
  - 搭建完整的UVM testbench，TB中使用生成的VIP
+ - TB优先复用提供的VIP，可以复用的VIP在TB中直接例化使用
  - 生成编译脚本makefile，编译通过TB
  - 构建smoke test，进行一次基本的读写操作，检查读回值和写入值一致
  - TB默认dump波形和编译/仿真日志，dump波形用fsdb格式
 
 ### 步骤3: 生成使用说明文档
 
- - 介绍VIP的使用，包括需要配置的参数、需要添加的编译选项
+介绍VIP的使用，包括需要配置的参数、需要添加的编译选项
+
+跑通smoke test
 
 ### 步骤4: 验证输出
 
  - 生成VIP可以编译通过
+ - VIP接口中的检查断言涵盖Checker List中接口相关所有checker
  - 生成VIP文件结构符合参考VIP格式
  - 生成VIP可以满足RTM中Testecase List所有测试用例需求
  - 如果生成TB，跑通冒烟测试

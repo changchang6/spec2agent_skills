@@ -12,12 +12,10 @@ VERDI     = verdi
 
 SCRIPT_DIR    := $(shell pwd)
 APLC_TB_HOME  := $(SCRIPT_DIR)
-APLC_RTL_HOME := $(HOME)/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/rtl
-VIP_SPI_HOME  := $(SCRIPT_DIR)/../vip/spi
+APLC_RTL_HOME := $(SCRIPT_DIR)/../../cc_APLC_Lite/rtl
 
 export APLC_TB_HOME
 export APLC_RTL_HOME
-export VIP_SPI_HOME
 
 TEST     ?= aplc_smoke_test
 SEED     ?= $(shell date +%s)
@@ -36,10 +34,9 @@ VCS_COMP_OPTS = \
     -kdb \
     -lca \
     +incdir+$(APLC_TB_HOME)/tb/if \
-    +incdir+$(APLC_TB_HOME)/tb/env \
     +incdir+$(APLC_TB_HOME)/tb/uvc/spi_agent \
-    +incdir+$(VIP_SPI_HOME) \
-    +incdir+$(APLC_RTL_HOME) \
+    +incdir+$(APLC_TB_HOME)/tb/env \
+    +incdir+$(APLC_TB_HOME)/tc \
     -timescale=1ns/1ps \
     -ntb_opts uvm-1.2 \
     +define+UVM_NO_DPI \
@@ -75,7 +72,7 @@ VCS_SIM_OPTS += -gui=verdi
 endif
 
 # -------------------- Targets --------------------
-.PHONY: comp sim wave clean
+.PHONY: comp sim wave clean cov_report cov_view
 
 comp:
 	@mkdir -p $(SIM_DIR)
@@ -85,7 +82,13 @@ sim: comp
 	cd $(SIM_DIR) && ./simv $(VCS_SIM_OPTS)
 
 wave:
-	cd $(SIM_DIR) && $(VERDI) -f $(APLC_TB_HOME)/filelist/aplc_verif.f -ssf $(WAVE_FSDB) -top aplc_tb_top -nologo &
+	cd $(SIM_DIR) && $(VERDI) -f $(APLC_TB_HOME)/filelist/aplc_verif.f -ssf $(WAVE_FSDB) -top tb_top -nologo &
+
+cov_report:
+	cd $(SIM_DIR) && urg -dir $(COV_DIR)/$(TEST).vdb -report cov_report
+
+cov_view:
+	cd $(SIM_DIR) && $(VERDI) -cov -covdir $(COV_DIR)/$(TEST).vdb -top tb &
 
 clean:
 	rm -rf $(SIM_DIR)

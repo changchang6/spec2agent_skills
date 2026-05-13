@@ -1,45 +1,51 @@
-`timescale 1ns/1ps
-
+// APLC TB Top Module
 `ifndef APLC_TB_TOP_SV
 `define APLC_TB_TOP_SV
 
-module aplc_tb_top;
+`timescale 1ns/1ps
 
-    logic        clk;
-    logic        rst_n;
+module tb_top;
+
+    import uvm_pkg::*;
+    import aplc_spi_pkg::*;
+    import aplc_tb_pkg::*;
+
+    // Clock and reset
+    logic clk;
+    logic rst_n;
+
+    // DUT signals
     logic        en;
     logic        test_mode;
     logic [1:0]  lane_mode;
 
-    // SPI interface wires
-    wire         pcs_n;
-    wire [15:0]  pdi;
-    wire [15:0]  pdo;
-    wire         pdo_oe;
-    wire         rxfifo_empty;
-    wire         rxfifo_full;
-    wire         txfifo_empty;
-    wire         txfifo_full;
+    // Instantiate SPI interface
+    aplc_spi_if spi_if (
+        .clk(clk),
+        .rst_n(rst_n)
+    );
 
-    // CSR external interface
-    logic        csr_rd_en;
-    logic        csr_wr_en;
-    logic [7:0]  csr_addr;
-    logic [31:0] csr_wdata;
-    logic [31:0] csr_rdata;
+    // Instantiate CSR interface
+    aplc_csr_if csr_if (
+        .clk(clk),
+        .rst_n(rst_n)
+    );
 
-    // AHB interface wires (DUT drives outputs, TB drives inputs)
-    wire [31:0]  haddr;
-    wire         hwrite;
-    wire [1:0]   htrans;
-    wire [2:0]   hsize;
-    wire [2:0]   hburst;
-    wire [31:0]  hwdata;
+    // AHB signals (directly wired for yuu_ahb)
+    logic [31:0] haddr;
+    logic        hwrite;
+    logic [1:0]  htrans;
+    logic [2:0]  hsize;
+    logic [2:0]  hburst;
+    logic [31:0] hwdata;
     logic [31:0] hrdata;
     logic        hready;
     logic        hresp;
 
-    // Clock generation
+    // Simple AHB slave memory model
+    logic [31:0] ahb_mem [logic [31:0]];
+
+    // Clock generation - 100MHz
     initial begin
         clk = 0;
         forever #5 clk = ~clk;
@@ -48,108 +54,37 @@ module aplc_tb_top;
     // Reset generation
     initial begin
         rst_n = 0;
-        #100 rst_n = 1;
+        #100;
+        rst_n = 1;
     end
 
-    // Control signals
+    // Control signal initialization
     initial begin
-        en         = 1;
-        test_mode  = 1;
-        lane_mode  = 2'b11;
+        en        = 1'b1;
+        test_mode = 1'b1;
+        lane_mode = 2'b11; // 16-bit mode default
     end
 
-    // -------------------------------------------------------
-    // AHB-Lite Slave Memory Model (2-phase pipeline)
-    // -------------------------------------------------------
-    logic [31:0] ahb_mem [logic [31:0]];
-
-    logic [31:0] ahb_addr_latch;
-    logic        ahb_write_latch;
-    logic        ahb_data_phase;
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            hready          <= 1'b1;
-            hresp           <= 1'b0;
-            hrdata          <= 32'h0;
-            ahb_addr_latch  <= 32'h0;
-            ahb_write_latch <= 1'b0;
-            ahb_data_phase  <= 1'b0;
-        end else begin
-            hresp  <= 1'b0;
-            hready <= 1'b1;
-
-            // Data phase: process latched address from previous cycle
-            if (ahb_data_phase) begin
-                if (ahb_write_latch) begin
-                    ahb_mem[ahb_addr_latch] <= hwdata;
-                end else begin
-                    if (ahb_mem.exists(ahb_addr_latch))
-                        hrdata <= ahb_mem[ahb_addr_latch];
-                    else
-                        hrdata <= 32'h0;
-                end
-            end
-
-            // Address phase: latch current address/control
-            if (htrans == 2'b10 || htrans == 2'b11) begin
-                ahb_addr_latch  <= haddr;
-                ahb_write_latch <= hwrite;
-                ahb_data_phase  <= 1'b1;
-            end else begin
-                ahb_data_phase <= 1'b0;
-            end
-        end
-    end
-
-    // External CSR rdata (for undefined addresses, return 0)
-    assign csr_rdata = 32'h0;
-
-    // -------------------------------------------------------
-    // SPI interface instance
-    // -------------------------------------------------------
-    aplc_spi_if u_spi_if (
-        .clk(clk),
-        .rst_n(rst_n)
-    );
-
-    // Connect SPI interface: driver outputs -> DUT inputs
-    assign pcs_n = u_spi_if.pcs_n;
-    assign pdi   = u_spi_if.pdi;
-
-    // Connect SPI interface: DUT outputs -> monitor inputs
-    assign u_spi_if.pdo           = pdo;
-    assign u_spi_if.pdo_oe        = pdo_oe;
-    assign u_spi_if.en            = en;
-    assign u_spi_if.test_mode     = test_mode;
-    assign u_spi_if.lane_mode     = lane_mode;
-    assign u_spi_if.rxfifo_empty  = rxfifo_empty;
-    assign u_spi_if.rxfifo_full   = rxfifo_full;
-    assign u_spi_if.txfifo_empty  = txfifo_empty;
-    assign u_spi_if.txfifo_full   = txfifo_full;
-
-    // -------------------------------------------------------
-    // DUT instance
-    // -------------------------------------------------------
-    APLC_LITE u_dut (
+    // DUT instantiation
+    APLC_LITE dut (
         .clk_i          (clk),
         .rst_n_i        (rst_n),
         .en_i           (en),
         .test_mode_i    (test_mode),
-        .pcs_n_i        (pcs_n),
-        .pdi_i          (pdi),
-        .pdo_o          (pdo),
-        .pdo_oe_o       (pdo_oe),
+        .pcs_n_i        (spi_if.pcs_n),
+        .pdi_i          (spi_if.pdi),
+        .pdo_o          (spi_if.pdo),
+        .pdo_oe_o       (spi_if.pdo_oe),
         .lane_mode_i    (lane_mode),
-        .rxfifo_empty_o (rxfifo_empty),
-        .rxfifo_full_o  (rxfifo_full),
-        .txfifo_empty_o (txfifo_empty),
-        .txfifo_full_o  (txfifo_full),
-        .csr_rd_en_o    (csr_rd_en),
-        .csr_wr_en_o    (csr_wr_en),
-        .csr_addr_o     (csr_addr),
-        .csr_wdata_o    (csr_wdata),
-        .csr_rdata_i    (csr_rdata),
+        .rxfifo_empty_o (spi_if.rxfifo_empty),
+        .rxfifo_full_o  (spi_if.rxfifo_full),
+        .txfifo_empty_o (spi_if.txfifo_empty),
+        .txfifo_full_o  (spi_if.txfifo_full),
+        .csr_rd_en_o    (csr_if.csr_rd_en),
+        .csr_wr_en_o    (csr_if.csr_wr_en),
+        .csr_addr_o     (csr_if.csr_addr),
+        .csr_wdata_o    (csr_if.csr_wdata),
+        .csr_rdata_i    (csr_if.csr_rdata),
         .haddr_o        (haddr),
         .hwrite_o       (hwrite),
         .htrans_o       (htrans),
@@ -161,25 +96,50 @@ module aplc_tb_top;
         .hresp_i        (hresp)
     );
 
-    // -------------------------------------------------------
-    // UVM initialization
-    // -------------------------------------------------------
-    import uvm_pkg::*;
-    import aplc_spi_pkg::*;
-    import aplc_tb_pkg::*;
-
-    initial begin
-        uvm_config_db #(virtual aplc_spi_if)::set(null, "uvm_test_top.m_env.m_spi_agent*", "m_vif", u_spi_if);
-        run_test();
+    // Simple AHB slave memory response
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            hready <= 1'b1;
+            hresp  <= 1'b0;
+            hrdata <= 32'b0;
+        end else begin
+            hready <= 1'b1;  // Always ready (zero wait state)
+            hresp  <= 1'b0;  // Always OKAY
+            if (htrans == 2'b10 || htrans == 2'b11) begin // NONSEQ or SEQ
+                if (hwrite) begin
+                    ahb_mem[haddr] = hwdata;
+                end else begin
+                    if (ahb_mem.exists(haddr))
+                        hrdata <= ahb_mem[haddr];
+                    else
+                        hrdata <= 32'b0;
+                end
+            end
+        end
     end
 
     // Waveform dump
     `ifdef DUMP_FSDB
     initial begin
         $fsdbDumpfile("aplc_tb.fsdb");
-        $fsdbDumpvars(0, aplc_tb_top);
+        $fsdbDumpvars(0, tb_top);
     end
     `endif
+
+    // UVM configuration and start
+    initial begin
+        // Set virtual interface
+        uvm_config_db#(virtual aplc_spi_if)::set(null, "uvm_test_top.m_env.m_spi_agent*", "vif", spi_if);
+
+        // Create and set environment config
+        aplc_env_config env_cfg;
+        env_cfg = aplc_env_config::type_id::create("env_cfg");
+        env_cfg.m_spi_cfg.m_vif = spi_if;
+        uvm_config_db#(aplc_env_config)::set(null, "uvm_test_top", "m_env_cfg", env_cfg);
+
+        // Run test
+        run_test();
+    end
 
 endmodule
 

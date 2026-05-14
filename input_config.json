@@ -2,14 +2,21 @@
     "RTM": "~/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/doc/dv/RTM_AI_FLTP_complete.xlsx",
     "DV_SPEC": "~/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/doc/dv/BT_APLC_DV_SPEC.docx",
     "LRS": "~/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/doc/de/APLC LRS.md",
+
+    "TB": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/tb_gen/APLC_LITE/",
     
     "VIP_spi": {
-        "agent_path": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/test1/tb/uvc/spi_agent/",
-        "if": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/test1/tb/if/spi_if.sv"
+        "agent_path": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/tb_gen/APLC_LITE/tb/uvc/spi_agent/",
+        "if": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/tb_gen/APLC_LITE/tb/if/spi_if.sv"
     },
 
     "VIP_csr": {
-        "agent_path": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/test1/tb/uvc/csr_agent/",
-        "if": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/test1/tb/if/csr_if.sv"
+        "agent_path": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/tb_gen/APLC_LITE/tb/uvc/csr_agent/",
+        "if": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/tb_gen/APLC_LITE/tb/if/csr_if.sv"
     },
+
+    "VIP_fifo": {
+        "agent_path": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/tb_gen/APLC_LITE/tb/uvc/fifo_agent/",
+        "if": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/tb_gen/APLC_LITE/tb/if/fifo_if.sv"
+    }
 }

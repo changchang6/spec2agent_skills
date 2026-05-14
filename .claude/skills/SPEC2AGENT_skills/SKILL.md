@@ -34,10 +34,6 @@ allowed-tools: Read,Edit,Grep,Bash(python3:*,ls,find)
  - 如果连续，driver在header最后一拍后应立即继续驱动payload beat，中间不插入空闲周期
  - 如果有间隔，driver需按LRS规定的间隔周期等待
 
-**FIFO反压**：确认接口是否包含FIFO状态信号以及协议对反压的规定：
- - 如果存在接收FIFO满信号，driver在驱动数据前**必须检查**该信号：满时停止驱动数据线，非满时恢复驱动。违反此规则会导致数据丢失且DUT无法检测
- - 如果存在发送FIFO空信号，driver/monitor在收集响应时**必须处理暂停**：输出使能有效但FIFO为空时，输出数据保持上一拍值，应跳过该拍不采集新数据，等待FIFO非空后恢复
-
 **末拍填充**：当总帧位数不能被数据位宽整除时，确认末拍低位如何处理（通常填0）
 
 **MSB/LSB优先**：确认数据发送顺序。如果是MSB-first，driver和monitor的移位寄存器从MSB端开始填充
@@ -48,7 +44,22 @@ allowed-tools: Read,Edit,Grep,Bash(python3:*,ls,find)
 
 ### 步骤2: 填写VIP
 
+所有填写的内容添加注释，标注AI gen
+
 #### 2.1 Interface实现规则
+
+interface遵守TB模板格式，**接口信号声明放在括号内，不能移到括号外**：
+```
+interface csr_if(
+	    input clk,
+     input rst_n,
+     input csr_rd_en,
+     input csr_wr_en,
+     input csr_addr,
+     input csr_wdata,
+     input csr_rdata
+);
+```
 
 VIP接口中需要生成SVA检查断言，断言基于RTM和LRS文档中的接口时序生成，常见SVA类型如下：
  - 时序检查：握手信号（HREADY/HTRANS）、建立保持时间。
@@ -99,21 +110,23 @@ VIP中monitor必须打印检测到的transaction，具体要求如下：
 
 **响应采集暂停处理**：如果1.1确认存在发送FIFO空信号，收集响应时必须检查：输出使能有效但FIFO为空时，输出数据保持上一拍值，monitor应跳过该拍（推进时钟但不采集数据），等FIFO非空后恢复采集
 
-### 步骤4: VIP编译检查
+#### 2.4 Sequence实现
 
-生成编译脚本makefile，编译TB中VIP的agent和if文件
+在seq文件夹下每个agent生成1个base sequence，生成的sequence文件添加到filelist文件夹下seq file中
 
-### 步骤5: 验证输出
+### 步骤3: VIP编译检查
+
+生成编译脚本makefile，编译生成的VIP相关的agent、sequence和if文件
+
+### 步骤4: 验证输出
 
  - driver代码开头声明了1.1中提取的所有时序常量，驱动逻辑引用这些常量
  - driver帧起始时序与LRS时序图一致（错沿/同沿模式与提取结果匹配）
  - driver帧释放时序正确：响应后释放模式下，先等DUT输出使能信号降下再释放帧选择信号
- - driver包含FIFO反压处理（如果接口存在FIFO状态信号）
  - monitor首拍采集时序与LRS时序图一致
- - 生成VIP可以编译通过
+ - **生成文件可以编译通过**
  - VIP接口中的检查断言涵盖Checker List中接口相关所有checker
- - 生成VIP文件结构符合参考VIP格式
- - 生成VIP可以满足RTM中Testcase List所有测试用例需求
+ - 生成VIP相关的agent、sequence和if可以满足RTM中Testcase List所有测试用例需求
 
  ## 注意事项
 

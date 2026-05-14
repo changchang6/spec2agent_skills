@@ -3,14 +3,13 @@
     "DV_SPEC": "~/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/doc/dv/BT_APLC_DV_SPEC.docx",
     "LRS": "~/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/doc/de/APLC LRS.md",
     
-    "VIP_gen": {
-        "name": "spi",
-        "vip_interface_signal": "clk, rst_n, en, test_mode, pcs_n, pdi, pdo, pdo_oe, lane_mode, rxfifo_empty, rxfifo_full, txfifo_empty, txfifo_full"
+    "VIP_spi": {
+        "agent_path": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/test1/tb/uvc/spi_agent/",
+        "if": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/test1/tb/if/spi_if.sv"
     },
 
-    "TB_gen": {
-        "REGMAP": "~/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/doc/de/APLC Regmap.xlsx",
-        "DUT_TOP": "~/ai_evaluation/claude_code/spec2tb/cc_APLC_Lite/rtl/APLC_LITE.sv",
-        "VIP_AHB": "./vip/yuu_ahb/"
-    }
+    "VIP_csr": {
+        "agent_path": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/test1/tb/uvc/csr_agent/",
+        "if": "~/ai_evaluation/claude_code/spec2tb/spec2agent_skills/test1/tb/if/csr_if.sv"
+    },
 }

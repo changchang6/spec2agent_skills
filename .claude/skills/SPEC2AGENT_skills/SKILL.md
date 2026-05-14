@@ -1,10 +1,10 @@
 ---
 name: SPEC2AGENT_skills
-description: 依据用户提供的RTM、DV_SPEC和LRS，生成完整的UVM agent VIP。并依据用户提供的Regmap、DUT_TOP和VIP文件，生成example UVM testbench，验证生成的VIP。
+description: 依据用户提供的RTM、DV_SPEC、LRS和TB模板，将TB中VIP的agent和if填写完整。
 allowed-tools: Read,Edit,Grep,Bash(python3:*,ls,find)
 ---
 
-你是一名资深芯片验证工程师，依据工作目录下input_config.json中提供的RTM、DV_SPEC和LRS，生成input_config.json中VIP_gen需要的功能完备的UVM agent VIP。
+你是一名资深芯片验证工程师，依据工作目录下input_config.json中提供的RTM、DV_SPEC和LRS，将input_config.json中的VIP填写完整。
 
 ## 工作流程
 
@@ -46,9 +46,7 @@ allowed-tools: Read,Edit,Grep,Bash(python3:*,ls,find)
  - 错沿模式下：driver在某拍驱动帧选择信号（如`drv_cb.frame_sel <= 0`），下一个`@(drv_cb)`后驱动首拍数据——这正好符合LRS中"帧选择信号先有效，下一拍数据有效"的要求，是错沿模式的自然实现
  - 同沿模式下：driver必须在**同一个clocking block事件**中同时完成帧选择信号的驱动和首拍数据的驱动
 
-### 步骤2: 生成VIP
-
-VIP中序列库足以构建RTM中Testecase List所有测试用例需求
+### 步骤2: 填写VIP
 
 #### 2.1 Interface实现规则
 
@@ -101,20 +99,9 @@ VIP中monitor必须打印检测到的transaction，具体要求如下：
 
 **响应采集暂停处理**：如果1.1确认存在发送FIFO空信号，收集响应时必须检查：输出使能有效但FIFO为空时，输出数据保持上一拍值，monitor应跳过该拍（推进时钟但不采集数据），等FIFO非空后恢复采集
 
-### 步骤3: 生成使用说明文档
+### 步骤4: VIP编译检查
 
-介绍VIP的使用，包括需要配置的参数、需要添加的编译选项
-
-### 步骤4: 生成example TB验证VIP基本功能
-
-如果用户在input_config.json中提供了TB_gen的相关信息，生成完整的example UVM testbench，验证生成的VIP的基本功能。
-
- - 搭建完整的UVM testbench，TB中使用生成的VIP
- - DUT其他信号接口的驱动，**TB优先复用input_config.json提供的VIP**，可以复用的VIP在TB中直接例化使用，用作DUT的master或slave
- - 生成编译脚本makefile，编译通过TB
- - 构建smoke test，进行一次基本的读写操作，检查读回值和写入值一致
- - smoke test运行报错，除了config_db组件传递错误，优先检查**driver驱动时序是否和LRS中接口时序一致**
- - TB默认dump波形和编译/仿真日志，dump波形用fsdb格式
+生成编译脚本makefile，编译TB中VIP的agent和if文件
 
 ### 步骤5: 验证输出
 
@@ -127,13 +114,10 @@ VIP中monitor必须打印检测到的transaction，具体要求如下：
  - VIP接口中的检查断言涵盖Checker List中接口相关所有checker
  - 生成VIP文件结构符合参考VIP格式
  - 生成VIP可以满足RTM中Testcase List所有测试用例需求
- - 如果生成TB，跑通冒烟测试
 
  ## 注意事项
 
   - 代码规范遵循.claude/skills/SPEC2AGENT_skills/reference/UVM_coding_style.md
   - Makefile参考.claude/skills/SPEC2AGENT_skills/examples/Makefile
   - 参考VIP.claude/skills/SPEC2AGENT_skills/examples/amiq_apb_vip
-  - testbench目录结构遵循.claude/skills/SPEC2TB_skills/reference/tb_dir_structure.md
-  - **严禁修改VIP源文件**：复用的VIP自带完备断言检查，不应修改VIP任何源文件
-  - **严禁修改设计源文件**：DUT RTL是验证对象，不应修改
+  - **严禁修改TB文件框架**
